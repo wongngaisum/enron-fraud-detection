@@ -16,7 +16,7 @@ To develop a fraud detection machine learning model using information that is co
 * Data pre-processing
 * Developed a new financial fraud detection model
 * Evaluated the performance of the newly developed model
-* Identify non-data analytic elements
+* Identified non-data analytic elements
   * Risks and red flags of the case, with the objective to prevent similar financial frauds in future
   * Corporate governance and controls
   * Suggestions on how to prevent similar financial fraud in future
