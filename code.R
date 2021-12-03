@@ -8,6 +8,8 @@ library(DMwR) # SMOTE
 library(corrplot) # Correlation plot
 library(readr)
 library(dplyr)
+library(ggraph)
+library(igraph)
 library(nnet) 
 library(randomForest)
 library(e1071)
@@ -135,19 +137,15 @@ enron_rose <- ROSE(poi ~ ., data = enron_imp_train, seed = 1)$data
 set.seed(1)
 enron_smote <- SMOTE(poi~.,enron_imp_train)
 
-###############################################################################
-
-
-# Extra EDA: Correlation plot
-par(mfrow=c(1,1))
-# Correlation between numerical features in imputed dataset
-corrplot(cor(enron_imp[,-12]))
 
 
 ###############################################################################
 ###                              Data modelling                             ###
 ###############################################################################
 
+###############################################################################
+###                        Without cross validation                         ###
+###############################################################################
 
 ##################
 # Decision Tree  #
@@ -166,7 +164,7 @@ TestSet = enron_imp_test
 set.seed(1)
 tree <- rpart(poi ~., data = TrainSet, method='class')
 plotcp(tree)
-prune_tree <- prune(tree, cp = 0.094) # CP 0.32 for ROSE, 0.094 for SMOTE
+prune_tree <- prune(tree, cp = 0.061) # 0.061 for ROSE, 0.042 for SMOTE
 prediction_tree <- predict(prune_tree, TestSet, type='class')
 conf_tree <-confusionMatrix(prediction_tree, TestSet$poi, positive='True')
 conf_tree
@@ -205,7 +203,7 @@ n_te=dim(TestSet)[1]
 for(i in seq(1, 301, 50))
 {
   set.seed(1)
-  model=nnet(poi ~ ., data=TrainSet,maxit=i,size=12,decay = 0.01, MaxNWts = 100000)
+  model=nnet(poi ~ ., data=TrainSet,maxit=i,size=6,decay = 0.01, MaxNWts = 100000)
   err11[i]=sum(predict(model,TrainSet,type='class')!=TrainSet[,17])/n_tr
   err12[i]=sum(predict(model,TestSet,type='class')!=TestSet[,17])/n_te
 }
@@ -216,7 +214,7 @@ lines(seq(1, 301, 50),error_2,col=2,type="b")
 legend("topleft",pch=c(15,15),legend=c("Train","Test"),col=c(1,2),bty="n")
 
 set.seed(1)
-ann_best=nnet(poi ~ ., data=TrainSet,maxit=50,size=12,decay = 0.01, MaxNWts = 10000)
+ann_best=nnet(poi ~ ., data=TrainSet,maxit=50,size=6,decay = 0.01, MaxNWts = 10000)
 prediction_ann = predict(ann_best,TestSet,type="class")
 table = table(prediction_ann, TestSet$poi)
 conf_nn <- confusionMatrix(table,positive='True')
@@ -227,8 +225,8 @@ conf_nn$byClass[c(5,6)]
 ##########################
 # Support vector machine #
 ##########################
-# Training set = Standardized ROSE, 50% precision, 60% recall
-# Training set = Standardized SMOTE, 75% precision, 30% recall
+# Training set = Standardized ROSE
+# Training set = Standardized SMOTE
 
 # Standardized ROSE
 TrainSet = enron_rose[,-14]
@@ -266,8 +264,8 @@ conf_svm$byClass[c(5,6)]
 ###############
 # Naive Bayes #
 ###############
-# Training set = ROSE, 100% precision, 40% recall
-# Training set = SMOTE, 54.5% precision, 60% recall
+# Training set = ROSE
+# Training set = SMOTE
 
 # ROSE
 TrainSet = enron_rose
@@ -294,8 +292,8 @@ conf_nb$byClass[c(5,6)]
 ##################
 #  Random Forest #
 ##################
-# Training set = ROSE, 66.7% precision, 40% recall
-# Training set = SMOTE, 83.3% precision, 50% recall
+# Training set = ROSE
+# Training set = SMOTE
 
 # ROSE
 TrainSet = enron_rose
@@ -317,8 +315,8 @@ conf_rf$byClass[c(5,6)]
 ############
 # Boosting #
 ############
-# Training set = ROSE, 42.9% precision, 30% recall
-# Training set = SMOTE, 80% precision, 40% recall
+# Training set = ROSE
+# Training set = SMOTE
 
 # ROSE
 TrainSet = enron_rose
@@ -365,22 +363,11 @@ conf_cvtree
 conf_cvtree$byClass[c(5,6)]
 
 
-# 5-fold CV with pruning, no data balancing/resampling
-set.seed(1)
-cvtree2 = rpart(poi ~ ., data=enron_imp_train, control=rpart.control(minsplit = 1, cp = 0, xval=5))
-plotcp(cvtree2, upper=c("splits"))
-prune_cvtree <- prune(cvtree2,cp=0.088)
-pred_cvtree2 = predict(prune_cvtree, enron_imp_test,type = "class")
-conf_cvtree2 <- confusionMatrix(pred_cvtree2, enron_imp_test$poi, positive='True')
-conf_cvtree2
-conf_cvtree2$byClass[c(5,6)]
-
-
 ##################
 # Neural network #
 ##################
 tgrid <- expand.grid(
-  .size = 12,
+  .size = 6,
   .decay = 0.01
 )
 
@@ -408,7 +395,7 @@ set.seed(1)
 model_cvnn <- train(poi ~., data = TrainSet,
                        method = "nnet",
                        trControl = train_control, metric = "ROC",
-                    tuneGrid = tgrid)
+                    tuneGrid = tgrid, maxit=50)
 prediction_cvnn = predict(model_cvnn, TestSet)
 conf_cvnn <- confusionMatrix(prediction_cvnn, TestSet$poi, positive='True')
 conf_cvnn
@@ -492,15 +479,64 @@ train_control <- trainControl(method = "cv", number = 5, sampling = "smote",
                               classProbs = TRUE)
 
 set.seed(1)
+start <- Sys.time()
 model_cvrf <- train(poi ~., data = enron_imp_train,
                method = "rf",
                trControl = train_control, metric = "ROC"
                , ntree=500, importance = TRUE, tuneGrid = tgrid)
-
+end <- Sys.time()
+end-start
 prediction_cvrf = predict(model_cvrf, enron_imp_test)
 conf_cvrf <- confusionMatrix(prediction_cvrf, enron_imp_test$poi, positive='True')
 conf_cvrf
 conf_cvrf$byClass[c(5,6)]
+rf <- model_cvrf$finalModel
+importance(rf)
+varImpPlot(rf)
+####Credit https://www.bbsmax.com/A/kPzOXYjoJx/ #####
+tree_func <- function(final_model,
+                      tree_num) {
+  # get tree by index
+  tree <- randomForest::getTree(final_model,
+                                k = tree_num,
+                                labelVar = TRUE) %>%
+    tibble::rownames_to_column() %>%
+    # make leaf split points to NA, so the 0s won't get plotted
+    mutate(`split point` = ifelse(is.na(prediction), `split point`, NA))
+  # prepare data frame for graph
+  graph_frame <- data.frame(from = rep(tree$rowname, 2),
+                            to = c(tree$`left daughter`, tree$`right daughter`))
+  # convert to graph and delete the last node that we don't want to plot
+  graph <- graph_from_data_frame(graph_frame) %>%
+    delete_vertices("0")
+  # set node labels
+  V(graph)$node_label <- gsub("_", " ", as.character(tree$`split var`))
+  V(graph)$leaf_label <- as.character(tree$prediction)
+  V(graph)$split <- as.character(round(tree$`split point`, digits = 2))
+  # plot
+  plot <- ggraph(graph, 'dendrogram') +
+    theme_bw() +
+    geom_edge_link() +
+    geom_node_point() +
+    geom_node_text(aes(label = node_label), na.rm = TRUE, repel = TRUE) +
+    geom_node_label(aes(label = split), vjust = 2.5, na.rm = TRUE, fill = "white") +
+    geom_node_label(aes(label = leaf_label, fill = leaf_label), na.rm = TRUE,
+                    repel = TRUE, colour = "white", fontface = "bold", show.legend = FALSE) +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major = element_blank(),
+          panel.background = element_blank(),
+          plot.background = element_rect(fill = "white"),
+          panel.border = element_blank(),
+          axis.line = element_blank(),
+          axis.text.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks = element_blank(),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          plot.title = element_text(size = 18))
+  print(plot)
+}
+tree_func(model_cvrf$finalModel, 1)
 
 
 ############
@@ -523,11 +559,13 @@ train_control <- trainControl(method = "cv", number = 5, sampling = "smote",
                               classProbs = TRUE)
 
 set.seed(1)
+start <- Sys.time()
 model_cvboost <- train(poi ~., data = enron_imp_train,
                     method = "AdaBoost.M1",
                     trControl = train_control, metric = "ROC",
                     tuneGrid = tgrid)
-
+end <- Sys.time()
+end-start
 prediction_cvboost = predict(model_cvboost, enron_imp_test)
 conf_cvboost <- confusionMatrix(prediction_cvboost, enron_imp_test$poi, positive='True')
 conf_cvboost
